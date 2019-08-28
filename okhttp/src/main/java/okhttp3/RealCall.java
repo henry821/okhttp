@@ -70,11 +70,11 @@ final class RealCall implements Call {
       if (executed) throw new IllegalStateException("Already Executed");
       executed = true;
     }
-    captureCallStackTrace();
-    eventListener.callStart(this);
+    captureCallStackTrace(); //捕捉异常堆栈信息
+    eventListener.callStart(this); //调用监听方法
     try {
-      client.dispatcher().executed(this);
-      Response result = getResponseWithInterceptorChain();
+      client.dispatcher().executed(this); //调度器将call请求加入到了同步执行队列中
+      Response result = getResponseWithInterceptorChain(); //获取返回数据，是一个拦截器链，依次调用拦截器对返回的response进行相应的操作
       if (result == null) throw new IOException("Canceled");
       return result;
     } catch (IOException e) {
@@ -93,10 +93,10 @@ final class RealCall implements Call {
   @Override public void enqueue(Callback responseCallback) {
     synchronized (this) {
       if (executed) throw new IllegalStateException("Already Executed");
-      executed = true;
+      executed = true; //executed用于表示Call请求是否执行过
     }
-    captureCallStackTrace();
-    eventListener.callStart(this);
+    captureCallStackTrace(); //捕捉异常堆栈信息
+    eventListener.callStart(this); //开启监听事件
     client.dispatcher().enqueue(new AsyncCall(responseCallback));
   }
 
@@ -144,6 +144,7 @@ final class RealCall implements Call {
     @Override protected void execute() {
       boolean signalledCallback = false;
       try {
+	  	//返回数据
         Response response = getResponseWithInterceptorChain();
         if (retryAndFollowUpInterceptor.isCanceled()) {
           signalledCallback = true;
@@ -182,21 +183,31 @@ final class RealCall implements Call {
 
   Response getResponseWithInterceptorChain() throws IOException {
     // Build a full stack of interceptors.
+    // 责任链
     List<Interceptor> interceptors = new ArrayList<>();
+	// 添加用户自定义Interceptor
     interceptors.addAll(client.interceptors());
+	// 处理错误、重定向等
     interceptors.add(retryAndFollowUpInterceptor);
+	// 添加必要的请求头信息、gzip处理等
     interceptors.add(new BridgeInterceptor(client.cookieJar()));
+	// 缓存处理
     interceptors.add(new CacheInterceptor(client.internalCache()));
+	// 与服务器建立链接
     interceptors.add(new ConnectInterceptor(client));
     if (!forWebSocket) {
+	  // 添加网络拦截器
       interceptors.addAll(client.networkInterceptors());
     }
+	// 负责向服务器发送请求数据、从服务器读取响应数据
     interceptors.add(new CallServerInterceptor(forWebSocket));
 
+	// 将interceptors集合以及相应参数传到RealIntercetorChain构造方法中完成责任链的创建
     Interceptor.Chain chain = new RealInterceptorChain(interceptors, null, null, null, 0,
         originalRequest, this, eventListener, client.connectTimeoutMillis(),
         client.readTimeoutMillis(), client.writeTimeoutMillis());
 
+	// 调用责任链的执行
     return chain.proceed(originalRequest);
   }
 }

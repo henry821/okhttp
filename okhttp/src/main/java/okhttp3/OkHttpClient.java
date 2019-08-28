@@ -372,6 +372,7 @@ public class OkHttpClient implements Cloneable, Call.Factory, WebSocket.Factory 
   }
 
   public Dispatcher dispatcher() {
+  	//实际返回的是Dispatcher类的对象(在Builder构造方法中初始化)
     return dispatcher;
   }
 
@@ -407,6 +408,7 @@ public class OkHttpClient implements Cloneable, Call.Factory, WebSocket.Factory 
 
   /**
    * Prepares the {@code request} to be executed at some point in the future.
+   * 准备在未来的某个时间点执行request方法
    */
   @Override public Call newCall(Request request) {
     return RealCall.newRealCall(this, request, false /* for web socket */);
@@ -426,33 +428,33 @@ public class OkHttpClient implements Cloneable, Call.Factory, WebSocket.Factory 
   }
 
   public static final class Builder {
-    Dispatcher dispatcher;
+    Dispatcher dispatcher; //调度分发器(核心之一)
     @Nullable Proxy proxy;
-    List<Protocol> protocols;
-    List<ConnectionSpec> connectionSpecs;
+    List<Protocol> protocols; //协议
+    List<ConnectionSpec> connectionSpecs; //传输层版本和连接协议
     final List<Interceptor> interceptors = new ArrayList<>();
     final List<Interceptor> networkInterceptors = new ArrayList<>();
-    EventListener.Factory eventListenerFactory;
-    ProxySelector proxySelector;
-    CookieJar cookieJar;
+    EventListener.Factory eventListenerFactory; //监听器
+    ProxySelector proxySelector; //代理选择器
+    CookieJar cookieJar; //cookie
     @Nullable Cache cache;
     @Nullable InternalCache internalCache;
-    SocketFactory socketFactory;
+    SocketFactory socketFactory; //socket工厂
     @Nullable SSLSocketFactory sslSocketFactory;
     @Nullable CertificateChainCleaner certificateChainCleaner;
-    HostnameVerifier hostnameVerifier;
-    CertificatePinner certificatePinner;
-    Authenticator proxyAuthenticator;
-    Authenticator authenticator;
-    ConnectionPool connectionPool;
-    Dns dns;
-    boolean followSslRedirects;
-    boolean followRedirects;
-    boolean retryOnConnectionFailure;
-    int connectTimeout;
-    int readTimeout;
-    int writeTimeout;
-    int pingInterval;
+    HostnameVerifier hostnameVerifier; //主机名字
+    CertificatePinner certificatePinner; //证书链
+    Authenticator proxyAuthenticator; //代理身份验证
+    Authenticator authenticator; //本地身份验证
+    ConnectionPool connectionPool; //连接池(核心之一)
+    Dns dns; //基础域名
+    boolean followSslRedirects; //安全套接层重定向
+    boolean followRedirects; //本地重定向
+    boolean retryOnConnectionFailure; //连接失败重试
+    int connectTimeout; //连接超时时间
+    int readTimeout; //读取超时时间
+    int writeTimeout; //写入超时时间
+    int pingInterval; //命令间隔
 
     public Builder() {
       dispatcher = new Dispatcher();

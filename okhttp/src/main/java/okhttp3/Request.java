@@ -120,10 +120,10 @@ public final class Request {
     HttpUrl url;
     String method;
     Headers.Builder headers;
-    RequestBody body;
+    RequestBody body; //请求体
 
     /** A mutable map of tags, or an immutable empty map if we don't have any. */
-    Map<Class<?>, Object> tags = Collections.emptyMap();
+    Map<Class<?>, Object> tags = Collections.emptyMap(); //标签
 
     public Builder() {
       this.method = "GET";

@@ -140,10 +140,14 @@ public final class RealInterceptorChain implements Interceptor.Chain {
     }
 
     // Call the next interceptor in the chain.
+    // 调用拦截链中的下一个拦截器
     RealInterceptorChain next = new RealInterceptorChain(interceptors, streamAllocation, httpCodec,
         connection, index + 1, request, call, eventListener, connectTimeout, readTimeout,
         writeTimeout);
+	// 获取当前index对应的拦截器
     Interceptor interceptor = interceptors.get(index);
+	// 每个拦截器会根据Chain拦截器链触发对下一个拦截器的调用，直到最后一个拦截器不触发
+	// 当拦截器链中所有的拦截器被依次执行完成后，就会将每次生成后的结果进行组装
     Response response = interceptor.intercept(next);
 
     // Confirm that the next interceptor made its required call to chain.proceed().

@@ -56,11 +56,15 @@ import static okhttp3.internal.http.StatusLine.HTTP_TEMP_REDIRECT;
 /**
  * This interceptor recovers from failures and follows redirects as necessary. It may throw an
  * {@link IOException} if the call was canceled.
+ *
+ * 负责处理错误、失败重试、重定向
  */
 public final class RetryAndFollowUpInterceptor implements Interceptor {
   /**
    * How many redirects and auth challenges should we attempt? Chrome follows 21 redirects; Firefox,
    * curl, and wget follow 20; Safari follows 16; and HTTP/1.0 recommends 5.
+   *
+   * 最大失败重连次数
    */
   private static final int MAX_FOLLOW_UPS = 20;
 
@@ -108,6 +112,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
     Call call = realChain.call();
     EventListener eventListener = realChain.eventListener();
 
+	//生成StreamAllocation对象
     StreamAllocation streamAllocation = new StreamAllocation(client.connectionPool(),
         createAddress(request.url()), call, eventListener, callStackTrace);
     this.streamAllocation = streamAllocation;
@@ -123,10 +128,14 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
       Response response;
       boolean releaseConnection = true;
       try {
+	  	//执行下一个拦截器，即BridgeInterceptor
+	  	//将初始化好的连接对象传递给下一个拦截器，通过proceed方法执行下一个拦截器
+	  	//这里返回的response是下一个拦截器处理返回的response，通过priorResponse不断结合，最终成为返回给我们的结果
         response = realChain.proceed(request, streamAllocation, null, null);
         releaseConnection = false;
       } catch (RouteException e) {
         // The attempt to connect via a route failed. The request will not have been sent.
+        // 如果有异常，判断是否要恢复
         if (!recover(e.getLastConnectException(), streamAllocation, false, request)) {
           throw e.getFirstConnectException();
         }
@@ -155,6 +164,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
             .build();
       }
 
+	  //检查是否符合要求
       Request followUp;
       try {
         followUp = followUpRequest(response, streamAllocation.route());
@@ -167,11 +177,14 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
         if (!forWebSocket) {
           streamAllocation.release();
         }
+		//返回结果
         return response;
       }
 
+	  //不符合，关闭响应流
       closeQuietly(response.body());
 
+	  //是否超过最大限制
       if (++followUpCount > MAX_FOLLOW_UPS) {
         streamAllocation.release();
         throw new ProtocolException("Too many follow-up requests: " + followUpCount);
@@ -182,6 +195,7 @@ public final class RetryAndFollowUpInterceptor implements Interceptor {
         throw new HttpRetryException("Cannot retry streamed HTTP body", response.code());
       }
 
+	  //是否有相同的连接
       if (!sameConnection(response, followUp.url())) {
         streamAllocation.release();
         streamAllocation = new StreamAllocation(client.connectionPool(),
