@@ -110,7 +110,7 @@ public class Platform {
    * @param hostname non-null for client-side handshakes; null for server-side handshakes.
    */
   public void configureTlsExtensions(SSLSocket sslSocket, @Nullable String hostname,
-      List<Protocol> protocols) {
+      List<Protocol> protocols) throws IOException {
   }
 
   /**
@@ -199,6 +199,12 @@ public class Platform {
 
   /** Attempt to match the host runtime to a capable Platform implementation. */
   private static Platform findPlatform() {
+    Platform android10 = Android10Platform.buildIfSupported();
+
+    if (android10 != null) {
+      return android10;
+    }
+
     Platform android = AndroidPlatform.buildIfSupported();
 
     if (android != null) {
