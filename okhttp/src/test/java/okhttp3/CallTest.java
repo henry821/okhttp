@@ -30,6 +30,7 @@ import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.net.UnknownServiceException;
 import java.security.cert.Certificate;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -46,9 +47,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
 import javax.annotation.Nullable;
 import javax.net.ssl.SSLException;
 import javax.net.ssl.SSLHandshakeException;
@@ -56,12 +54,14 @@ import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.net.ssl.SSLProtocolException;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
-import okhttp3.RecordingEventListener.CallEnd;
-import okhttp3.RecordingEventListener.ConnectionAcquired;
-import okhttp3.RecordingEventListener.ConnectionReleased;
-import okhttp3.RecordingEventListener.ResponseFailed;
+import okhttp3.CallEvent.CallEnd;
+import okhttp3.CallEvent.ConnectStart;
+import okhttp3.CallEvent.ConnectionAcquired;
+import okhttp3.CallEvent.ConnectionReleased;
+import okhttp3.CallEvent.ResponseFailed;
 import okhttp3.internal.DoubleInetAddressDns;
 import okhttp3.internal.RecordingOkAuthenticator;
+import okhttp3.internal.Util;
 import okhttp3.internal.Version;
 import okhttp3.internal.http.RecordingProxySelector;
 import okhttp3.internal.io.InMemoryFileSystem;
@@ -71,6 +71,7 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.QueueDispatcher;
 import okhttp3.mockwebserver.RecordedRequest;
 import okhttp3.mockwebserver.SocketPolicy;
+import okhttp3.testing.Flaky;
 import okhttp3.testing.PlatformRule;
 import okhttp3.tls.HandshakeCertificates;
 import okhttp3.tls.HeldCertificate;
@@ -90,6 +91,7 @@ import org.junit.rules.Timeout;
 
 import static java.net.CookiePolicy.ACCEPT_ORIGINAL_SERVER;
 import static java.util.Arrays.asList;
+import static java.util.Collections.singletonList;
 import static okhttp3.CipherSuite.TLS_DH_anon_WITH_AES_128_GCM_SHA256;
 import static okhttp3.TestUtil.awaitGarbageCollection;
 import static okhttp3.internal.Internal.addHeaderLenient;
@@ -107,27 +109,23 @@ public final class CallTest {
   @Rule public final MockWebServer server2 = new MockWebServer();
   @Rule public final InMemoryFileSystem fileSystem = new InMemoryFileSystem();
   @Rule public final OkHttpClientTestRule clientTestRule = new OkHttpClientTestRule();
+  @Rule public final TestLogHandler testLogHandler = new TestLogHandler(OkHttpClient.class);
 
   private RecordingEventListener listener = new RecordingEventListener();
   private HandshakeCertificates handshakeCertificates = localhost();
-  private OkHttpClient client;
+  private OkHttpClient client = clientTestRule.newClientBuilder()
+      .eventListenerFactory(clientTestRule.wrap(listener))
+      .build();
   private RecordingCallback callback = new RecordingCallback();
-  private TestLogHandler logHandler = new TestLogHandler();
   private Cache cache = new Cache(new File("/cache/"), Integer.MAX_VALUE, fileSystem);
-  private Logger logger = Logger.getLogger(OkHttpClient.class.getName());
 
   @Before public void setUp() {
     platform.assumeNotOpenJSSE();
-
-    logger.addHandler(logHandler);
-    client = clientTestRule.newClientBuilder()
-        .eventListener(listener)
-        .build();
+    platform.assumeNotBouncyCastle();
   }
 
   @After public void tearDown() throws Exception {
     cache.delete();
-    logger.removeHandler(logHandler);
   }
 
   @Test public void get() throws Exception {
@@ -769,8 +767,8 @@ public final class CallTest {
       }
     });
 
-    assertThat(logHandler.take()).isEqualTo(
-        ("INFO: Callback failure for call to " + server.url("/") + "..."));
+    assertThat(testLogHandler.take()).isEqualTo(
+        "INFO: Callback failure for call to " + server.url("/") + "...");
   }
 
   @Test public void connectionPooling() throws Exception {
@@ -780,6 +778,63 @@ public final class CallTest {
 
     executeSynchronously("/a").assertBody("abc");
     executeSynchronously("/b").assertBody("def");
+    executeSynchronously("/c").assertBody("ghi");
+
+    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(0);
+    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(1);
+    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(2);
+  }
+
+  /**
+   * Each OkHttpClient used to get its own instance of NullProxySelector, and because these weren't
+   * equal their connections weren't pooled. That's a nasty performance bug!
+   *
+   * https://github.com/square/okhttp/issues/5519
+   */
+  @Test public void connectionPoolingWithFreshClientSamePool() throws Exception {
+    server.enqueue(new MockResponse().setBody("abc"));
+    server.enqueue(new MockResponse().setBody("def"));
+    server.enqueue(new MockResponse().setBody("ghi"));
+
+    client = new OkHttpClient.Builder()
+        .connectionPool(client.connectionPool())
+        .proxy(server.toProxyAddress())
+        .build();
+    executeSynchronously("/a").assertBody("abc");
+
+    client = new OkHttpClient.Builder()
+        .connectionPool(client.connectionPool())
+        .proxy(server.toProxyAddress())
+        .build();
+    executeSynchronously("/b").assertBody("def");
+
+    client = new OkHttpClient.Builder()
+        .connectionPool(client.connectionPool())
+        .proxy(server.toProxyAddress())
+        .build();
+    executeSynchronously("/c").assertBody("ghi");
+
+    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(0);
+    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(1);
+    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(2);
+  }
+
+  @Test public void connectionPoolingWithClientBuiltOffProxy() throws Exception {
+    client = new OkHttpClient.Builder()
+        .proxy(server.toProxyAddress())
+        .build();
+
+    server.enqueue(new MockResponse().setBody("abc"));
+    server.enqueue(new MockResponse().setBody("def"));
+    server.enqueue(new MockResponse().setBody("ghi"));
+
+    client = client.newBuilder().build();
+    executeSynchronously("/a").assertBody("abc");
+
+    client = client.newBuilder().build();
+    executeSynchronously("/b").assertBody("def");
+
+    client = client.newBuilder().build();
     executeSynchronously("/c").assertBody("ghi");
 
     assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(0);
@@ -838,15 +893,15 @@ public final class CallTest {
     server.enqueue(new MockResponse().setBody("abc"));
     server.enqueue(new MockResponse().setBody("def").throttleBody(1, 750, TimeUnit.MILLISECONDS));
 
-    // First request: time out after 1000ms.
+    // First request: time out after 1s.
     client = client.newBuilder()
-        .readTimeout(1000, TimeUnit.MILLISECONDS)
+        .readTimeout(Duration.ofSeconds(1))
         .build();
     executeSynchronously("/a").assertBody("abc");
 
     // Second request: time out after 250ms.
     client = client.newBuilder()
-        .readTimeout(250, TimeUnit.MILLISECONDS)
+        .readTimeout(Duration.ofMillis(250))
         .build();
     Request request = new Request.Builder().url(server.url("/b")).build();
     Response response = client.newCall(request).execute();
@@ -877,7 +932,7 @@ public final class CallTest {
         .setBody("unreachable!"));
 
     client = client.newBuilder()
-        .readTimeout(100, TimeUnit.MILLISECONDS)
+        .readTimeout(Duration.ofMillis(100))
         .build();
 
     Request request = new Request.Builder().url(server.url("/")).build();
@@ -900,11 +955,10 @@ public final class CallTest {
 
     server.enqueue(new MockResponse()
         .setBody("success!"));
-
     client = client.newBuilder()
         .proxySelector(proxySelector)
-        .readTimeout(100, TimeUnit.MILLISECONDS)
-        .connectTimeout(100, TimeUnit.MILLISECONDS)
+        .readTimeout(Duration.ofMillis(100))
+        .connectTimeout(Duration.ofMillis(100))
         .build();
 
     Request request = new Request.Builder().url("http://android.com/").build();
@@ -940,12 +994,12 @@ public final class CallTest {
   }
 
   /** https://github.com/square/okhttp/issues/4761 */
-  @Test public void interceptorCallsProceedWithoutClosingPriorResponse() throws Exception {
+  @Test
+  public void interceptorCallsProceedWithoutClosingPriorResponse() throws Exception {
     server.enqueue(new MockResponse()
         .setBody("abc"));
-    server.enqueue(new MockResponse());
 
-    client = client.newBuilder()
+    client = clientTestRule.newClientBuilder()
         .addInterceptor(new Interceptor() {
           @Override public Response intercept(Chain chain) throws IOException {
             Response response = chain.proceed(chain.request());
@@ -963,9 +1017,7 @@ public final class CallTest {
     Request request = new Request.Builder()
         .url(server.url("/"))
         .build();
-    executeSynchronously(request)
-        .assertCode(200)
-        .assertBody("abc");
+    executeSynchronously(request).assertBody("abc");
   }
 
   /**
@@ -984,7 +1036,7 @@ public final class CallTest {
 
     client = client.newBuilder()
         .proxySelector(proxySelector)
-        .readTimeout(100, TimeUnit.MILLISECONDS)
+        .readTimeout(Duration.ofMillis(100))
         .build();
 
     Request request = new Request.Builder().url("http://android.com/").build();
@@ -1115,7 +1167,7 @@ public final class CallTest {
     server.setDispatcher(dispatcher);
 
     listener = new RecordingEventListener() {
-      @Override public void responseHeadersStart(Call call) {
+      @Override public void requestHeadersEnd(Call call, Request request) {
         requestFinished.countDown();
         super.responseHeadersStart(call);
       }
@@ -1123,7 +1175,7 @@ public final class CallTest {
 
     client = client.newBuilder()
         .dns(new DoubleInetAddressDns())
-        .eventListener(listener)
+        .eventListenerFactory(clientTestRule.wrap(listener))
         .build();
     assertThat(client.retryOnConnectionFailure()).isTrue();
 
@@ -1285,6 +1337,7 @@ public final class CallTest {
   }
 
   @Test public void tlsHostnameVerificationFailure() throws Exception {
+    TestUtil.assumeNotWindows();
     server.enqueue(new MockResponse());
 
     HeldCertificate serverCertificate = new HeldCertificate.Builder()
@@ -1964,7 +2017,7 @@ public final class CallTest {
           }
 
           @Override public void writeTo(BufferedSink sink) throws IOException {
-            sink.writeUtf8("attempt " + (attempt++));
+            sink.writeUtf8("attempt " + attempt++);
           }
         })
         .build();
@@ -1995,7 +2048,7 @@ public final class CallTest {
           }
 
           @Override public void writeTo(BufferedSink sink) throws IOException {
-            sink.writeUtf8("attempt " + (attempt++));
+            sink.writeUtf8("attempt " + attempt++);
           }
 
           @Override public boolean isOneShot() {
@@ -2318,7 +2371,7 @@ public final class CallTest {
     call.cancel();
     latch.countDown();
 
-    callback.await(server.url("/a")).assertFailure("Canceled", "Socket closed");
+    callback.await(server.url("/a")).assertFailure("Canceled", "Socket closed", "Socket is closed");
   }
 
   @Test public void cancelAll() throws Exception {
@@ -2327,7 +2380,7 @@ public final class CallTest {
         .build());
     call.enqueue(callback);
     client.dispatcher().cancelAll();
-    callback.await(server.url("/")).assertFailure("Canceled", "Socket closed");
+    callback.await(server.url("/")).assertFailure("Canceled", "Socket closed", "Socket is closed");
   }
 
   @Test
@@ -2394,6 +2447,8 @@ public final class CallTest {
       fail();
     } catch (IOException expected) {
     }
+
+    assertThat(server.takeRequest().getPath()).isEqualTo("/a");
   }
 
   @Test public void cancelInFlightBeforeResponseReadThrowsIOE_HTTPS() throws Exception {
@@ -2715,7 +2770,7 @@ public final class CallTest {
         .setSocketPolicy(SocketPolicy.NO_RESPONSE));
 
     client = client.newBuilder()
-        .readTimeout(500, TimeUnit.MILLISECONDS)
+        .readTimeout(Duration.ofMillis(500))
         .build();
 
     Request request = new Request.Builder()
@@ -2764,7 +2819,7 @@ public final class CallTest {
 
   @Test public void serverRespondsWith100ContinueOnly() throws Exception {
     client = client.newBuilder()
-        .readTimeout(1, TimeUnit.SECONDS)
+        .readTimeout(Duration.ofSeconds(1))
         .build();
 
     server.enqueue(new MockResponse()
@@ -2903,6 +2958,7 @@ public final class CallTest {
   }
 
   /** We had a bug where failed HTTP/2 calls could break the entire connection. */
+  @Flaky
   @Test public void failingCallsDoNotInterfereWithConnection() throws Exception {
     enableProtocol(Protocol.HTTP_2);
 
@@ -2928,7 +2984,16 @@ public final class CallTest {
         .url(server.url("/"))
         .post(requestBody)
         .build());
-    assertThat(call.execute().body().string()).isEqualTo("Response 1");
+    try (Response response = call.execute()) {
+      assertThat(response.code()).isEqualTo(200);
+      assertThat(response.body().string()).isNotBlank();
+    }
+
+    long connectCount = listener.getEventSequence().stream()
+        .filter((event) -> event instanceof ConnectStart)
+        .count();
+    long expected = platform.isJdk8() ? 2 : 1;
+    assertThat(connectCount).isEqualTo(expected);
   }
 
   /** Test which headers are sent unencrypted to the HTTP proxy. */
@@ -2968,6 +3033,35 @@ public final class CallTest {
     assertThat(get.getHeader("User-Agent")).isEqualTo("App 1.0");
 
     assertThat(hostnameVerifier.calls).containsExactly("verify android.com");
+  }
+
+  /**
+   * We had a bug where OkHttp would crash if HTTP proxies returned a truncated response.
+   * https://github.com/square/okhttp/issues/5727
+   */
+  @Test public void proxyUpgradeFailsWithTruncatedResponse() throws Exception {
+    server.enqueue(new MockResponse()
+        .setBody("abc")
+        .setHeader("Content-Length", "5")
+        .setSocketPolicy(SocketPolicy.DISCONNECT_AT_END));
+
+    RecordingHostnameVerifier hostnameVerifier = new RecordingHostnameVerifier();
+    client = client.newBuilder()
+        .sslSocketFactory(
+            handshakeCertificates.sslSocketFactory(), handshakeCertificates.trustManager())
+        .proxy(server.toProxyAddress())
+        .hostnameVerifier(hostnameVerifier)
+        .build();
+
+    Request request = new Request.Builder()
+        .url("https://android.com/foo")
+        .build();
+    try {
+      client.newCall(request).execute();
+      fail();
+    } catch (IOException expected) {
+      assertThat(expected).hasMessage("unexpected end of stream");
+    }
   }
 
   /** Respond to a proxy authorization challenge. */
@@ -3249,7 +3343,7 @@ public final class CallTest {
         .build();
 
     try {
-      Response response = client.newCall(request).execute();
+      client.newCall(request).execute();
       fail();
     } catch (IOException expected) {
     }
@@ -3499,21 +3593,12 @@ public final class CallTest {
         .url(server.url("/"))
         .build();
 
-    Level original = logger.getLevel();
-    logger.setLevel(Level.FINE);
-    logHandler.setFormatter(new SimpleFormatter());
-    try {
-      client.newCall(request).execute(); // Ignore the response so it gets leaked then GC'd.
-      awaitGarbageCollection();
+    client.newCall(request).execute(); // Ignore the response so it gets leaked then GC'd.
+    awaitGarbageCollection();
 
-      String message = logHandler.take();
-      assertThat(message).contains("A connection to " + server.url("/") + " was leaked."
-            + " Did you forget to close a response body?");
-      assertThat(message).contains("okhttp3.RealCall.execute(");
-      assertThat(message).contains("okhttp3.CallTest.leakedResponseBodyLogsStackTrace(");
-    } finally {
-      logger.setLevel(original);
-    }
+    String message = testLogHandler.take();
+    assertThat(message).contains("A connection to " + server.url("/") + " was leaked."
+        + " Did you forget to close a response body?");
   }
 
   @Test public void asyncLeakedResponseBodyLogsStackTrace() throws Exception {
@@ -3528,35 +3613,26 @@ public final class CallTest {
         .url(server.url("/"))
         .build();
 
-    Level original = logger.getLevel();
-    logger.setLevel(Level.FINE);
-    logHandler.setFormatter(new SimpleFormatter());
-    try {
-      final CountDownLatch latch = new CountDownLatch(1);
-      client.newCall(request).enqueue(new Callback() {
-        @Override public void onFailure(Call call, IOException e) {
-          fail();
-        }
+    CountDownLatch latch = new CountDownLatch(1);
+    client.newCall(request).enqueue(new Callback() {
+      @Override public void onFailure(Call call, IOException e) {
+        fail();
+      }
 
-        @Override public void onResponse(Call call, Response response) throws IOException {
-          // Ignore the response so it gets leaked then GC'd.
-          latch.countDown();
-        }
-      });
-      latch.await();
-      // There's some flakiness when triggering a GC for objects in a separate thread. Adding a
-      // small delay appears to ensure the objects will get GC'd.
-      Thread.sleep(200);
-      awaitGarbageCollection();
+      @Override public void onResponse(Call call, Response response) throws IOException {
+        // Ignore the response so it gets leaked then GC'd.
+        latch.countDown();
+      }
+    });
+    latch.await();
+    // There's some flakiness when triggering a GC for objects in a separate thread. Adding a
+    // small delay appears to ensure the objects will get GC'd.
+    Thread.sleep(200);
+    awaitGarbageCollection();
 
-      String message = logHandler.take();
-      assertThat(message).contains("A connection to " + server.url("/") + " was leaked."
-            + " Did you forget to close a response body?");
-      assertThat(message).contains("okhttp3.RealCall.enqueue(");
-      assertThat(message).contains("okhttp3.CallTest.asyncLeakedResponseBodyLogsStackTrace(");
-    } finally {
-      logger.setLevel(original);
-    }
+    String message = testLogHandler.take();
+    assertThat(message).contains("A connection to " + server.url("/") + " was leaked."
+          + " Did you forget to close a response body?");
   }
 
   @Test public void failedAuthenticatorReleasesConnection() throws IOException {
@@ -3719,6 +3795,22 @@ public final class CallTest {
     }
   }
 
+  @Test public void connectionIsImmediatelyUnhealthy() throws Exception {
+    EventListener listener = new EventListener() {
+      @Override public void connectionAcquired(Call call, Connection connection) {
+        Util.closeQuietly(connection.socket());
+      }
+    };
+
+    client = client.newBuilder()
+        .eventListener(listener)
+        .build();
+
+    executeSynchronously("/")
+        .assertFailure(IOException.class)
+        .assertFailure("exhausted all routes");
+  }
+
   @Test public void requestBodyThrowsUnrelatedToNetwork() throws Exception {
     server.enqueue(new MockResponse());
 
@@ -3730,17 +3822,51 @@ public final class CallTest {
           }
 
           @Override public void writeTo(BufferedSink sink) throws IOException {
+            sink.flush(); // For determinism, always send a partial request to the server.
             throw new IOException("boom");
           }
         })
         .build();
 
     executeSynchronously(request).assertFailure("boom");
+
+    assertThat(server.takeRequest().getFailure()).isNotNull();
   }
 
   @Test public void requestBodyThrowsUnrelatedToNetwork_HTTP2() throws Exception {
     enableProtocol(Protocol.HTTP_2);
     requestBodyThrowsUnrelatedToNetwork();
+  }
+
+  /**
+   * This test cancels the call just after the response body ends. In effect we end up with a
+   * connection that returns to the connection pool with the underlying socket closed. This relies
+   * on an implementation detail so it might not be a valid test case in the future.
+   */
+  @Test public void cancelAfterResponseBodyEnd() throws Exception {
+    enableTls();
+    server.enqueue(new MockResponse().setBody("abc"));
+    server.enqueue(new MockResponse().setBody("def"));
+
+    client = client.newBuilder()
+        .protocols(singletonList(Protocol.HTTP_1_1))
+        .build();
+
+    OkHttpClient cancelClient = client.newBuilder()
+        .eventListener(new EventListener() {
+          @Override public void responseBodyEnd(Call call, long byteCount) {
+            call.cancel();
+          }
+        })
+        .build();
+
+    Call call = cancelClient.newCall(new Request.Builder()
+        .url(server.url("/"))
+        .build());
+    Response response = call.execute();
+    assertThat(response.body().string()).isEqualTo("abc");
+
+    executeSynchronously("/").assertCode(200);
   }
 
   /** https://github.com/square/okhttp/issues/4583 */
@@ -3783,6 +3909,7 @@ public final class CallTest {
       }
 
       @Override public void writeTo(BufferedSink sink) throws IOException {
+        sink.flush(); // For determinism, always send a partial request to the server.
         throw new IOException("write body fail!");
       }
     };

@@ -75,6 +75,7 @@ public final class CacheTest {
 
   @Before public void setUp() throws Exception {
     platform.assumeNotOpenJSSE();
+    platform.assumeNotBouncyCastle();
 
     server.setProtocolNegotiationEnabled(false);
     cache = new Cache(new File("/cache/"), Integer.MAX_VALUE, fileSystem);
@@ -1931,17 +1932,16 @@ public final class CacheTest {
     assertThat(response2.code()).isEqualTo(HttpURLConnection.HTTP_OK);
     assertThat(response2.body().string()).isEqualTo("A");
     assertThat(response2.header("Allow")).isEqualTo("GET, HEAD");
-    assertThat((double) (response2.receivedResponseAtMillis() - t1)).isCloseTo(
+    Long updatedTimestamp = response2.receivedResponseAtMillis();
+    assertThat((double) (updatedTimestamp - t1)).isCloseTo(
         (double) 0, offset(250.0));
 
     // A full cache hit reads the cache.
-    Thread.sleep(500); // Make sure t1 and t2 are distinct.
-    long t2 = System.currentTimeMillis();
+    Thread.sleep(10);
     Response response3 = get(server.url("/a"));
     assertThat(response3.body().string()).isEqualTo("A");
     assertThat(response3.header("Allow")).isEqualTo("GET, HEAD");
-    assertThat((double) (response3.receivedResponseAtMillis() - t1)).isCloseTo(
-        (double) 0, offset(250.0));
+    assertThat(response3.receivedResponseAtMillis()).isEqualTo(updatedTimestamp);
 
     assertThat(server.getRequestCount()).isEqualTo(2);
   }
@@ -2454,6 +2454,34 @@ public final class CacheTest {
 
     assertThat(server.takeRequest().getHeader("If-None-Match")).isNull();
     assertThat(server.takeRequest().getHeader("If-None-Match")).isEqualTo("α");
+  }
+
+  @Test public void conditionalHitHeadersCombined() throws Exception {
+    server.enqueue(new MockResponse()
+        .addHeader("Etag", "a")
+        .addHeader("Cache-Control: max-age=0")
+        .addHeader("A: a1")
+        .addHeader("B: b2")
+        .addHeader("B: b3")
+        .setBody("abcd"));
+    server.enqueue(new MockResponse()
+        .setResponseCode(HttpURLConnection.HTTP_NOT_MODIFIED)
+        .addHeader("B: b4")
+        .addHeader("B: b5")
+        .addHeader("C: c6"));
+
+    Response response1 = get(server.url("/"));
+    assertThat(response1.body().string()).isEqualTo("abcd");
+    assertThat(response1.headers()).isEqualTo(Headers.of("Etag", "a", "Cache-Control", "max-age=0",
+        "A", "a1", "B", "b2", "B", "b3", "Content-Length", "4"));
+
+    // The original 'A' header is retained because the network response doesn't have one.
+    // The original 'B' headers are replaced by the network response.
+    // The network's 'C' header is added.
+    Response response2 = get(server.url("/"));
+    assertThat(response2.body().string()).isEqualTo("abcd");
+    assertThat(response2.headers()).isEqualTo(Headers.of("Etag", "a", "Cache-Control", "max-age=0",
+        "A", "a1", "Content-Length", "4", "B", "b4", "B", "b5", "C", "c6"));
   }
 
   private Response get(HttpUrl url) throws IOException {

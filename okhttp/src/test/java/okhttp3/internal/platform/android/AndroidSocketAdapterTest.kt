@@ -15,10 +15,14 @@
  */
 package okhttp3.internal.platform.android
 
+import java.security.Provider
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocket
 import okhttp3.DelegatingSSLSocket
 import okhttp3.DelegatingSSLSocketFactory
 import okhttp3.Protocol.HTTP_1_1
 import okhttp3.Protocol.HTTP_2
+import okhttp3.testing.PlatformRule
 import org.conscrypt.Conscrypt
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -26,20 +30,24 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeFalse
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
-import java.security.Provider
-import javax.net.ssl.SSLContext
-import javax.net.ssl.SSLSocket
 
 @RunWith(Parameterized::class)
 class AndroidSocketAdapterTest(private val adapter: SocketAdapter) {
-  private val provider: Provider = Conscrypt.newProviderBuilder().provideTrustManager(true).build()
-  val context: SSLContext = SSLContext.getInstance("TLS", provider)
+  @Suppress("RedundantVisibilityModifier")
+  @JvmField
+  @Rule
+  public val platform = PlatformRule.conscrypt()
 
-  init {
-    context.init(null, null, null)
+  val context by lazy {
+    val provider: Provider = Conscrypt.newProviderBuilder().provideTrustManager(true).build()
+
+    SSLContext.getInstance("TLS", provider).apply {
+      init(null, null, null)
+    }
   }
 
   @Test
@@ -49,7 +57,7 @@ class AndroidSocketAdapterTest(private val adapter: SocketAdapter) {
     val sslSocket = socketFactory.createSocket() as SSLSocket
     assertTrue(adapter.matchesSocket(sslSocket))
 
-    adapter.configureTlsExtensions(sslSocket, "example.com", listOf(HTTP_2, HTTP_1_1))
+    adapter.configureTlsExtensions(sslSocket, null, listOf(HTTP_2, HTTP_1_1))
     // not connected
     assertNull(adapter.getSelectedProtocol(sslSocket))
   }
@@ -80,7 +88,7 @@ class AndroidSocketAdapterTest(private val adapter: SocketAdapter) {
         object : DelegatingSSLSocket(context.socketFactory.createSocket() as SSLSocket) {}
     assertFalse(adapter.matchesSocket(sslSocket))
 
-    adapter.configureTlsExtensions(sslSocket, "example.com", listOf(HTTP_2, HTTP_1_1))
+    adapter.configureTlsExtensions(sslSocket, null, listOf(HTTP_2, HTTP_1_1))
     // not connected
     assertNull(adapter.getSelectedProtocol(sslSocket))
   }
@@ -89,11 +97,11 @@ class AndroidSocketAdapterTest(private val adapter: SocketAdapter) {
     @JvmStatic
     @Parameterized.Parameters(name = "{0}")
     fun data(): Collection<SocketAdapter> {
-      return listOf(
-          ConscryptSocketAdapter,
+      return listOfNotNull(
+          ConscryptSocketAdapter.buildIfSupported(),
           DeferredSocketAdapter("org.conscrypt"),
-          AndroidSocketAdapter.buildIfSupported("org.conscrypt")!!,
-          StandardAndroidSocketAdapter.buildIfSupported("org.conscrypt")!!
+          AndroidSocketAdapter.buildIfSupported("org.conscrypt"),
+          StandardAndroidSocketAdapter.buildIfSupported("org.conscrypt")
       )
     }
   }

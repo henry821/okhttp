@@ -15,38 +15,6 @@
  */
 package okhttp3
 
-import okhttp3.Handshake.Companion.handshake
-import okhttp3.Headers.Companion.headersOf
-import okhttp3.Headers.Companion.toHeaders
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.RequestBody.Companion.asRequestBody
-import okhttp3.ResponseBody.Companion.toResponseBody
-import okhttp3.ResponseBody.Companion.asResponseBody
-import okhttp3.internal.http2.Settings
-import okhttp3.internal.proxy.NullProxySelector
-import okhttp3.internal.tls.OkHostnameVerifier
-import okhttp3.logging.HttpLoggingInterceptor
-import okhttp3.logging.LoggingEventListener
-import okhttp3.mockwebserver.MockResponse
-import okhttp3.mockwebserver.MockWebServer
-import okhttp3.mockwebserver.PushPromise
-import okhttp3.mockwebserver.QueueDispatcher
-import okhttp3.mockwebserver.RecordedRequest
-import okhttp3.mockwebserver.SocketPolicy
-import okhttp3.tls.HandshakeCertificates
-import okhttp3.tls.HeldCertificate
-import okhttp3.tls.internal.TlsUtil.localhost
-import okio.Buffer
-import okio.BufferedSink
-import okio.BufferedSource
-import okio.ByteString
-import okio.Timeout
-import org.junit.Ignore
-import org.junit.Test
 import java.io.File
 import java.io.IOException
 import java.math.BigInteger
@@ -78,6 +46,38 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.X509KeyManager
 import javax.net.ssl.X509TrustManager
+import okhttp3.Handshake.Companion.handshake
+import okhttp3.Headers.Companion.headersOf
+import okhttp3.Headers.Companion.toHeaders
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody.Companion.asResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.internal.http2.Settings
+import okhttp3.internal.proxy.NullProxySelector
+import okhttp3.internal.tls.OkHostnameVerifier
+import okhttp3.logging.HttpLoggingInterceptor
+import okhttp3.logging.LoggingEventListener
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.PushPromise
+import okhttp3.mockwebserver.QueueDispatcher
+import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
+import okhttp3.tls.HandshakeCertificates
+import okhttp3.tls.HeldCertificate
+import okhttp3.tls.internal.TlsUtil.localhost
+import okio.Buffer
+import okio.BufferedSink
+import okio.BufferedSource
+import okio.ByteString
+import okio.Timeout
+import org.junit.Ignore
+import org.junit.Test
 
 /**
  * Access every type, function, and property from Kotlin to defend against unexpected regressions in
@@ -387,6 +387,7 @@ class KotlinSourceModernTest {
       override fun responseFailed(call: Call, ioe: IOException) = TODO()
       override fun callEnd(call: Call) = TODO()
       override fun callFailed(call: Call, ioe: IOException) = TODO()
+      override fun canceled(call: Call) = TODO()
     }
     val none: EventListener = EventListener.NONE
   }
@@ -847,7 +848,7 @@ class KotlinSourceModernTest {
     builder = builder.pingInterval(0L, TimeUnit.SECONDS)
     builder = builder.pingInterval(Duration.ofSeconds(0L))
     builder = builder.proxy(Proxy.NO_PROXY)
-    builder = builder.proxySelector(NullProxySelector())
+    builder = builder.proxySelector(NullProxySelector)
     builder = builder.cookieJar(CookieJar.NO_COOKIES)
     builder = builder.cache(Cache(File("/cache/"), Integer.MAX_VALUE.toLong()))
     builder = builder.dns(Dns.SYSTEM)
@@ -1150,7 +1151,7 @@ class KotlinSourceModernTest {
         Proxy.NO_PROXY,
         listOf(Protocol.HTTP_1_1),
         listOf(ConnectionSpec.MODERN_TLS),
-        NullProxySelector()
+        NullProxySelector
     )
   }
 

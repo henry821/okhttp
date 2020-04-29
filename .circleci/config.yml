@@ -1,11 +1,17 @@
 version: 2.1
 
+orbs:
+  windows: circleci/windows@2.4.0
+
 commands:
   runtests:
     description: "Run tests"
     parameters:
       platform:
         type: string
+      testjdk:
+        type: string
+        default: ""
     steps:
       - restore_cache:
           keys:
@@ -17,7 +23,7 @@ commands:
           name: Run tests
           command: ./gradlew --build-cache --parallel --continue test
           environment:
-            GRADLE_OPTS: -Dorg.gradle.daemon=false -Dokhttp.platform=<< parameters.platform >> -Dorg.gradle.workers.max=3 -Xmx1G
+            GRADLE_OPTS: -Dorg.gradle.daemon=false -Dokhttp.platform=<< parameters.platform >> -Dorg.gradle.workers.max=3 -Xmx1G << parameters.testjdk >>
 
       - save_cache:
           paths:
@@ -30,7 +36,11 @@ commands:
           name: Save test results
           command: |
             mkdir -p ~/test-results/junit/
+            if [ -x /usr/bin/find ]; then
+            /usr/bin/find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/test-results/junit/ \;
+            else
             find . -type f -regex ".*/build/test-results/.*xml" -exec cp {} ~/test-results/junit/ \;
+            fi
           when: always
 
       - store_test_results:
@@ -51,7 +61,7 @@ commands:
 jobs:
   compile:
     docker:
-      - image: circleci/openjdk:8u222-jdk-stretch
+      - image: circleci/openjdk:11.0.7-jdk-buster
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -70,7 +80,7 @@ jobs:
           name: Run tests
           command: ./gradlew --parallel --build-cache test
           environment:
-            GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=3 -Xmx1G
+            GRADLE_OPTS: -Dorg.gradle.daemon=false -Dokhttp.platform=jdk9 -Dorg.gradle.workers.max=3 -Xmx1G
 
       - save_cache:
           paths:
@@ -79,9 +89,9 @@ jobs:
           # Under normal usage, saves compiled results from master at least once a day
           key: v4-{{ .Branch }}-{{ .Environment.CIRCLE_JOB }}-{{ epoch }}
 
-  checkjdk8:
+  checkjdk11:
     docker:
-      - image: circleci/openjdk:8u222-jdk-stretch
+      - image: circleci/openjdk:11.0.7-jdk-buster
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -114,7 +124,7 @@ jobs:
 
   testjdk8:
     docker:
-      - image: circleci/openjdk:8u222-jdk-stretch
+      - image: circleci/openjdk:11.0.6-jdk-stretch
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -125,10 +135,11 @@ jobs:
 
       - runtests:
           platform: jdk8
+          testjdk: -Dtest.java.home=/usr/lib/jvm/java-8-openjdk-amd64
 
   testjdk8alpn:
     docker:
-      - image: circleci/openjdk:8u222-jdk-stretch
+      - image: circleci/openjdk:11.0.6-jdk-stretch
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -139,10 +150,11 @@ jobs:
 
       - runtests:
           platform: jdk8alpn
+          testjdk: -Dtest.java.home=/usr/lib/jvm/java-8-openjdk-amd64 -Dalpn.boot.version=8.1.13.v20181017
 
   testopenjsse:
     docker:
-      - image: circleci/openjdk:8u222-jdk-stretch
+      - image: circleci/openjdk:11.0.7-jdk-buster
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -153,10 +165,11 @@ jobs:
 
       - runtests:
           platform: openjsse
+          testjdk: -Dtest.java.home=/usr/lib/jvm/java-8-openjdk-amd64
 
   testjdk11:
     docker:
-      - image: circleci/openjdk:11.0.4-jdk-stretch
+      - image: circleci/openjdk:11.0.7-jdk-buster
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -168,10 +181,38 @@ jobs:
       - runtests:
           platform: jdk9
 
-  testjdk12:
+  testjdk12windows:
+    executor:
+      name: windows/default
+      shell: bash.exe
+
+    environment:
+      JVM_OPTS: -Xmx1g
+      TERM: dumb
+
+    steps:
+      - checkout
+
+      - runtests:
+          platform: jdk9
+
+  testjdk13:
     docker:
-      # best source of JDK 12 for now
-      - image: circleci/dynamodb:12.0.2-jdk
+      - image: circleci/openjdk:13.0.2-jdk-buster
+
+    environment:
+      JVM_OPTS: -Xmx1g
+      TERM: dumb
+
+    steps:
+      - checkout
+
+      - runtests:
+          platform: jdk9
+
+  testjdk14:
+    docker:
+      - image: circleci/openjdk:14.0.1-jdk-buster
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -185,7 +226,7 @@ jobs:
 
   testconscrypt:
     docker:
-      - image: circleci/openjdk:11.0.4-jdk-stretch
+      - image: circleci/openjdk:11.0.7-jdk-buster
 
     environment:
       JVM_OPTS: -Xmx1g
@@ -197,6 +238,34 @@ jobs:
       - runtests:
           platform: conscrypt
 
+  testbouncycastle:
+    docker:
+      - image: circleci/openjdk:11.0.7-jdk-buster
+
+    environment:
+      JVM_OPTS: -Xmx1g
+      TERM: dumb
+
+    steps:
+      - checkout
+
+      - runtests:
+          platform: bouncycastle
+
+  testcorretto:
+    docker:
+      - image: circleci/openjdk:11.0.7-jdk-buster
+
+    environment:
+      JVM_OPTS: -Xmx1g
+      TERM: dumb
+
+    steps:
+      - checkout
+
+      - runtests:
+          platform: corretto
+
 workflows:
   version: 2
   commit:
@@ -205,7 +274,7 @@ workflows:
           filters:
             branches:
               only: master
-      - checkjdk8:
+      - checkjdk11:
           filters:
             branches:
               ignore:
@@ -214,12 +283,9 @@ workflows:
       - testjdk8:
           filters:
             branches:
-              only: master
+              ignore:
+                - gh-pages
       - testjdk8alpn:
-          filters:
-            branches:
-              only: master
-      - testopenjsse:
           filters:
             branches:
               only: master
@@ -228,14 +294,21 @@ workflows:
             branches:
               ignore:
                 - gh-pages
-      - testjdk12:
+      - testjdk13:
           filters:
             branches:
-              only: master
-      - testconscrypt:
+              ignore:
+                - gh-pages
+      - testjdk14:
           filters:
             branches:
-              only: master
+              ignore:
+                - gh-pages
+      #- testjdk12windows:
+      #- testbouncycastle
+      #- testopenjsse
+      #- testconscrypt
+      #- testcorretto
   nightly:
     triggers:
       - schedule:
@@ -245,7 +318,7 @@ workflows:
               only: master
     jobs:
       - compile
-      - checkjdk8:
+      - checkjdk11:
           requires:
             - compile
       - testjdk8:
@@ -260,7 +333,10 @@ workflows:
       - testjdk11:
           requires:
             - compile
-      - testjdk12:
+      - testjdk12windows:
+          requires:
+            - compile
+      - testjdk13:
           requires:
             - compile
       - testconscrypt:

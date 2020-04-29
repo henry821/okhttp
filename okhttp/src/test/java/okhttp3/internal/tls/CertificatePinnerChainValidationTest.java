@@ -41,6 +41,7 @@ import okhttp3.mockwebserver.SocketPolicy;
 import okhttp3.testing.PlatformRule;
 import okhttp3.tls.HandshakeCertificates;
 import okhttp3.tls.HeldCertificate;
+import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -54,6 +55,11 @@ public final class CertificatePinnerChainValidationTest {
   @Rule public final OkHttpClientTestRule clientTestRule = new OkHttpClientTestRule();
 
   @Rule public final MockWebServer server = new MockWebServer();
+
+  @Before
+  public void setup() {
+    platform.assumeNotBouncyCastle();
+  }
 
   /** The pinner should pull the root certificate from the trust manager. */
   @Test public void pinRootNotPresentInChain() throws Exception {
@@ -181,6 +187,7 @@ public final class CertificatePinnerChainValidationTest {
   @Test public void unrelatedPinnedLeafCertificateInChain() throws Exception {
     // https://github.com/square/okhttp/issues/4729
     platform.expectFailureOnConscryptPlatform();
+    platform.expectFailureOnCorrettoPlatform();
 
     // Start with a trusted root CA certificate.
     HeldCertificate rootCa = new HeldCertificate.Builder()
@@ -259,6 +266,7 @@ public final class CertificatePinnerChainValidationTest {
   @Test public void unrelatedPinnedIntermediateCertificateInChain() throws Exception {
     // https://github.com/square/okhttp/issues/4729
     platform.expectFailureOnConscryptPlatform();
+    platform.expectFailureOnCorrettoPlatform();
 
     // Start with two root CA certificates, one is good and the other is compromised.
     HeldCertificate rootCa = new HeldCertificate.Builder()

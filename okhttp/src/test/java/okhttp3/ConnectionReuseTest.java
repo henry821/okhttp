@@ -24,7 +24,6 @@ import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.SocketPolicy;
 import okhttp3.testing.PlatformRule;
 import okhttp3.tls.HandshakeCertificates;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TestRule;
@@ -43,11 +42,7 @@ public final class ConnectionReuseTest {
   @Rule public final OkHttpClientTestRule clientTestRule = new OkHttpClientTestRule();
 
   private HandshakeCertificates handshakeCertificates = localhost();
-  private OkHttpClient client;
-
-  @Before public void setUp() {
-    client = clientTestRule.newClient();
-  }
+  private OkHttpClient client = clientTestRule.newClient();
 
   @Test public void connectionsAreReused() throws Exception {
     server.enqueue(new MockResponse().setBody("a"));
@@ -59,7 +54,20 @@ public final class ConnectionReuseTest {
     assertConnectionReused(request, request);
   }
 
+  @Test public void connectionsAreReusedForPosts() throws Exception {
+    server.enqueue(new MockResponse().setBody("a"));
+    server.enqueue(new MockResponse().setBody("b"));
+
+    Request request = new Request.Builder()
+        .url(server.url("/"))
+        .post(RequestBody.create("request body", MediaType.get("text/plain")))
+        .build();
+    assertConnectionReused(request, request);
+  }
+
   @Test public void connectionsAreReusedWithHttp2() throws Exception {
+    platform.assumeNotBouncyCastle();
+
     enableHttp2();
     server.enqueue(new MockResponse().setBody("a"));
     server.enqueue(new MockResponse().setBody("b"));
@@ -183,31 +191,9 @@ public final class ConnectionReuseTest {
     assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(0);
   }
 
-  @Test public void staleConnectionNotReusedForNonIdempotentRequest() throws Exception {
-    server.enqueue(new MockResponse().setBody("a")
-        .setSocketPolicy(SocketPolicy.SHUTDOWN_OUTPUT_AT_END));
-    server.enqueue(new MockResponse().setBody("b"));
-
-    Request requestA = new Request.Builder()
-        .url(server.url("/"))
-        .build();
-    Response responseA = client.newCall(requestA).execute();
-    assertThat(responseA.body().string()).isEqualTo("a");
-    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(0);
-
-    // Give the socket a chance to become stale.
-    Thread.sleep(250);
-
-    Request requestB = new Request.Builder()
-        .url(server.url("/"))
-        .post(RequestBody.create("b", MediaType.get("text/plain")))
-        .build();
-    Response responseB = client.newCall(requestB).execute();
-    assertThat(responseB.body().string()).isEqualTo("b");
-    assertThat(server.takeRequest().getSequenceNumber()).isEqualTo(0);
-  }
-
   @Test public void http2ConnectionsAreSharedBeforeResponseIsConsumed() throws Exception {
+    platform.assumeNotBouncyCastle();
+
     enableHttp2();
     server.enqueue(new MockResponse().setBody("a"));
     server.enqueue(new MockResponse().setBody("b"));
@@ -248,6 +234,8 @@ public final class ConnectionReuseTest {
   }
 
   @Test public void connectionsAreNotReusedIfSslSocketFactoryChanges() throws Exception {
+    platform.assumeNotBouncyCastle();
+
     enableHttps();
     server.enqueue(new MockResponse());
     server.enqueue(new MockResponse());
@@ -275,6 +263,8 @@ public final class ConnectionReuseTest {
   }
 
   @Test public void connectionsAreNotReusedIfHostnameVerifierChanges() throws Exception {
+    platform.assumeNotBouncyCastle();
+
     enableHttps();
     server.enqueue(new MockResponse());
     server.enqueue(new MockResponse());

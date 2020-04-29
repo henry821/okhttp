@@ -20,16 +20,15 @@ public final class DispatcherTest {
   RecordingWebSocketListener webSocketListener = new RecordingWebSocketListener();
   Dispatcher dispatcher = new Dispatcher(executor);
   RecordingEventListener listener = new RecordingEventListener();
-  OkHttpClient client;
+  OkHttpClient client = clientTestRule.newClientBuilder()
+      .dispatcher(dispatcher)
+      .eventListenerFactory(clientTestRule.wrap(listener))
+      .build();
 
   @Before public void setUp() throws Exception {
     dispatcher.setMaxRequests(20);
     dispatcher.setMaxRequestsPerHost(10);
     listener.forbidLock(dispatcher);
-    client = clientTestRule.newClientBuilder()
-        .dispatcher(dispatcher)
-        .eventListener(listener)
-        .build();
   }
 
   @Test public void maxRequestsZero() throws Exception {
@@ -280,8 +279,8 @@ public final class DispatcherTest {
     dispatcher.setMaxRequests(2); // Trigger promotion.
     callback.await(request2.url()).assertFailure(InterruptedIOException.class);
 
-    assertThat(listener.recordedEventTypes()).containsExactly("CallStart", "CallStart",
-        "CallFailed");
+    assertThat(listener.recordedEventTypes())
+        .containsExactly("CallStart", "CallStart", "CallFailed");
   }
 
   @Test public void executionRejectedAfterMaxRequestsPerHostChange() throws Exception {
@@ -293,8 +292,8 @@ public final class DispatcherTest {
     client.newCall(request2).enqueue(callback);
     dispatcher.setMaxRequestsPerHost(2); // Trigger promotion.
     callback.await(request2.url()).assertFailure(InterruptedIOException.class);
-    assertThat(listener.recordedEventTypes()).containsExactly("CallStart", "CallStart",
-        "CallFailed");
+    assertThat(listener.recordedEventTypes())
+        .containsExactly("CallStart", "CallStart", "CallFailed");
   }
 
   @Test public void executionRejectedAfterPrecedingCallFinishes() throws Exception {
@@ -306,8 +305,8 @@ public final class DispatcherTest {
     client.newCall(request2).enqueue(callback);
     executor.finishJob("http://a/1"); // Trigger promotion.
     callback.await(request2.url()).assertFailure(InterruptedIOException.class);
-    assertThat(listener.recordedEventTypes()).containsExactly("CallStart", "CallStart",
-        "CallFailed");
+    assertThat(listener.recordedEventTypes())
+        .containsExactly("CallStart", "CallStart", "CallFailed");
   }
 
   private Thread makeSynchronousCall(Call call) {

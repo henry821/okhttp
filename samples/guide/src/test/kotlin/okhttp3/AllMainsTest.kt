@@ -15,21 +15,30 @@
  */
 package okhttp3
 
+import java.io.File
+import java.lang.reflect.InvocationTargetException
 import org.junit.Ignore
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.Parameterized
-import java.io.File
-import java.lang.reflect.InvocationTargetException
 
 @RunWith(Parameterized::class)
 @Ignore
 class AllMainsTest(val className: String) {
   @Test
   fun runMain() {
-    val mainMethod = Class.forName(className).methods.find { it.name == "main" }
+    val mainMethod = Class.forName(className)
+        .methods.find { it.name == "main" }
     try {
-      mainMethod?.invoke(null, arrayOf<String>())
+      if (mainMethod != null) {
+        if (mainMethod.parameters.isEmpty()) {
+          mainMethod.invoke(null)
+        } else {
+          mainMethod.invoke(null, arrayOf<String>())
+        }
+      } else {
+        System.err.println("No main for $className")
+      }
     } catch (ite: InvocationTargetException) {
       if (!expectedFailure(className, ite.cause!!)) {
         throw ite.cause!!
@@ -37,7 +46,11 @@ class AllMainsTest(val className: String) {
     }
   }
 
-  private fun expectedFailure(className: String, cause: Throwable): Boolean {
+  @Suppress("UNUSED_PARAMETER")
+  private fun expectedFailure(
+    className: String,
+    cause: Throwable
+  ): Boolean {
     return when (className) {
       "okhttp3.recipes.CheckHandshake" -> true // by design
       "okhttp3.recipes.RequestBodyCompression" -> true // expired token
@@ -53,15 +66,25 @@ class AllMainsTest(val className: String) {
     fun data(): List<String> {
       val mainFiles = mainFiles()
       return mainFiles.map {
-        it.path.substring("$prefix/samples/guide/src/main/java".length, it.path.length - 5)
-            .replace('/', '.')
+        val suffix = it.path.replace("${prefix}samples/guide/src/main/java/", "")
+        suffix.replace("(.*)\\.java".toRegex()) { mr ->
+          mr.groupValues[1].replace('/', '.')
+        }.replace("(.*)\\.kt".toRegex()) { mr ->
+          mr.groupValues[1].replace('/', '.') + "Kt"
+        }
       }.sorted()
     }
 
     private fun mainFiles(): List<File> {
-      return File("$prefix/samples/guide/src/main/java/okhttp3").listFiles()?.flatMap {
-        it?.listFiles()?.toList().orEmpty()
-      }.orEmpty()
+      val directories = listOf(
+          "$prefix/samples/guide/src/main/java/okhttp3/guide",
+          "$prefix/samples/guide/src/main/java/okhttp3/recipes",
+          "$prefix/samples/guide/src/main/java/okhttp3/recipes/kt"
+      ).map { File(it) }
+
+      return directories.flatMap {
+        it.listFiles().orEmpty().filter { f -> f.isFile }.toList()
+      }
     }
   }
 }

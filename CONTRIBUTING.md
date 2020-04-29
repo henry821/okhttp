@@ -32,14 +32,30 @@ Contribute code changes through GitHub by forking the repository and sending a p
 squash all pull requests on merge.
 
 
+Gradle Setup
+------------
+
+```
+$ cat local.properties
+sdk.dir=PATH_TO_ANDROID_HOME/sdk
+org.gradle.caching=true
+```
+
+Running Android Tests
+---------------------
+
+$ ANDROID_SDK_ROOT=PATH_TO_ANDROID_HOME/sdk ./gradlew :android-test:connectedCheck
+
 Committer's Guides
 ------------------
 
  * [Concurrency][concurrency]
+ * [Debug Logging][debug_logging]
  * [Releasing][releasing]
 
  [cla]: https://spreadsheets.google.com/spreadsheet/viewform?formkey=dDViT2xzUHAwRkI3X3k5Z0lQM091OGc6MQ&ndplr=1
  [concurrency]: http://square.github.io/okhttp/concurrency/
+ [debug_logging]: http://square.github.io/okhttp/debug_logging/
  [releasing]: http://square.github.io/okhttp/releasing/
  [security]: http://square.github.io/okhttp/security/
  [works_with_okhttp]: http://square.github.io/okhttp/works_with_okhttp/

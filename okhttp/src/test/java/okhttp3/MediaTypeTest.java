@@ -16,7 +16,7 @@
  */
 package okhttp3;
 
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -137,6 +137,14 @@ public class MediaTypeTest {
     assertThat(mediaType.type()).isEqualTo("text");
     assertThat(mediaType.subtype()).isEqualTo("plain");
     assertThat(mediaType.charset().name()).isEqualTo("UTF-8");
+    assertThat(mediaType.parameter("charset")).isEqualTo("utf-8");
+    assertThat(mediaType.parameter("a")).isEqualTo("1");
+    assertThat(mediaType.parameter("b")).isEqualTo("2");
+    assertThat(mediaType.parameter("c")).isEqualTo("3");
+    assertThat(mediaType.parameter("CHARSET")).isEqualTo("utf-8");
+    assertThat(mediaType.parameter("A")).isEqualTo("1");
+    assertThat(mediaType.parameter("B")).isEqualTo("2");
+    assertThat(mediaType.parameter("C")).isEqualTo("3");
   }
 
   @Test public void testCharsetAndQuoting() throws Exception {
@@ -150,9 +158,9 @@ public class MediaTypeTest {
     assertThat(mediaType.charset().name()).isEqualTo("UTF-8");
   }
 
-  @Test public void testMultipleCharsets() {
-    assertInvalid("text/plain; charset=utf-8; charset=utf-16",
-        "Multiple charsets defined: \"utf-8\" and: \"utf-16\" for: \"text/plain; charset=utf-8; charset=utf-16\"");
+  @Test public void testMultipleCharsetsReturnsFirstMatch() {
+    MediaType mediaType = parse("text/plain; charset=utf-8; charset=utf-16");
+    assertThat(mediaType.charset().name()).isEqualTo("UTF-8");
   }
 
   @Test public void testIllegalCharsetName() {
@@ -187,11 +195,11 @@ public class MediaTypeTest {
   @Test public void testDefaultCharset() throws Exception {
     MediaType noCharset = parse("text/plain");
     assertThat(noCharset.charset(UTF_8).name()).isEqualTo("UTF-8");
-    assertThat(noCharset.charset(Charset.forName("US-ASCII")).name()).isEqualTo("US-ASCII");
+    assertThat(noCharset.charset(StandardCharsets.US_ASCII).name()).isEqualTo("US-ASCII");
 
     MediaType charset = parse("text/plain; charset=iso-8859-1");
     assertThat(charset.charset(UTF_8).name()).isEqualTo("ISO-8859-1");
-    assertThat(charset.charset(Charset.forName("US-ASCII")).name()).isEqualTo("ISO-8859-1");
+    assertThat(charset.charset(StandardCharsets.US_ASCII).name()).isEqualTo("ISO-8859-1");
   }
 
   @Test public void testParseDanglingSemicolon() throws Exception {
@@ -200,6 +208,26 @@ public class MediaTypeTest {
     assertThat(mediaType.subtype()).isEqualTo("plain");
     assertThat(mediaType.charset()).isNull();
     assertThat(mediaType.toString()).isEqualTo("text/plain;");
+  }
+
+  @Test public void testParameter() throws Exception {
+    MediaType mediaType = parse("multipart/mixed; boundary=\"abcd\"");
+    assertThat(mediaType.parameter("boundary")).isEqualTo("abcd");
+    assertThat(mediaType.parameter("BOUNDARY")).isEqualTo("abcd");
+  }
+
+  @Test public void testMultipleParameters() throws Exception {
+    MediaType mediaType = parse(
+        "Message/Partial; number=2; total=3; id=\"oc=abc@example.com\"");
+    assertThat(mediaType.parameter("number")).isEqualTo("2");
+    assertThat(mediaType.parameter("total")).isEqualTo("3");
+    assertThat(mediaType.parameter("id")).isEqualTo("oc=abc@example.com");
+    assertThat(mediaType.parameter("foo")).isNull();
+  }
+
+  @Test public void testRepeatedParameter() throws Exception {
+    MediaType mediaType = parse("multipart/mixed; number=2; number=3");
+    assertThat(mediaType.parameter("number")).isEqualTo("2");
   }
 
   private void assertMediaType(String string) {

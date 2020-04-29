@@ -34,6 +34,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.OkHttpClientTestRule;
 import okhttp3.Request;
 import okhttp3.Response;
+import okhttp3.internal.http2.ConnectionShutdownException;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.testing.PlatformRule;
@@ -66,6 +67,7 @@ public final class ClientAuthTest {
   @Before
   public void setUp() {
     platform.assumeNotOpenJSSE();
+    platform.assumeNotBouncyCastle();
 
     serverRootCa = new HeldCertificate.Builder()
         .serialNumber(1L)
@@ -257,6 +259,8 @@ public final class ClientAuthTest {
     } catch (SocketException expected) {
       assertThat(getPlatformSystemProperty()).isIn(PlatformRule.JDK9_PROPERTY,
           PlatformRule.CONSCRYPT_PROPERTY);
+    } catch (ConnectionShutdownException expected) {
+      // It didn't fail until it reached the application layer.
     }
   }
 

@@ -1,7 +1,7 @@
 Logging Interceptor
 ===================
 
-An [OkHttp interceptor][1] which logs HTTP request and response data.
+An [OkHttp interceptor][interceptors] which logs HTTP request and response data.
 
 ```java
 HttpLoggingInterceptor logging = new HttpLoggingInterceptor();
@@ -37,9 +37,8 @@ Download
 --------
 
 ```kotlin
-implementation("com.squareup.okhttp3:logging-interceptor:4.1.0")
+implementation("com.squareup.okhttp3:logging-interceptor:4.6.0")
 ```
 
 
-
- [1]: ../INTERCEPTORS.md
+[interceptors]: https://square.github.io/okhttp/interceptors/

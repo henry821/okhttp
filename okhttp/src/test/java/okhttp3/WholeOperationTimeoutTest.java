@@ -18,6 +18,7 @@ package okhttp3;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.HttpURLConnection;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -25,7 +26,6 @@ import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.testing.Flaky;
 import okio.BufferedSink;
-import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
@@ -39,11 +39,7 @@ public final class WholeOperationTimeoutTest {
   @Rule public final MockWebServer server = new MockWebServer();
   @Rule public final OkHttpClientTestRule clientTestRule = new OkHttpClientTestRule();
 
-  private OkHttpClient client;
-
-  @Before public void setUp() {
-    client = clientTestRule.newClient();
-  }
+  private final OkHttpClient client = clientTestRule.newClient();
 
   @Test public void defaultConfigIsNoTimeout() throws Exception {
     Request request = new Request.Builder()
@@ -59,7 +55,7 @@ public final class WholeOperationTimeoutTest {
         .build();
 
     OkHttpClient timeoutClient = client.newBuilder()
-        .callTimeout(456, TimeUnit.MILLISECONDS)
+        .callTimeout(Duration.ofMillis(456))
         .build();
 
     Call call = timeoutClient.newCall(request);

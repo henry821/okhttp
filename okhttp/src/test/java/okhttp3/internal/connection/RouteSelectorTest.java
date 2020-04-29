@@ -41,6 +41,8 @@ import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.Route;
 import okhttp3.internal.http.RecordingProxySelector;
+import okhttp3.testing.PlatformRule;
+import okhttp3.testing.PlatformVersion;
 import okhttp3.tls.HandshakeCertificates;
 import org.junit.Before;
 import org.junit.Rule;
@@ -53,6 +55,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.fail;
 
 public final class RouteSelectorTest {
+  @Rule public final PlatformRule platform = new PlatformRule();
   @Rule public final OkHttpClientTestRule clientTestRule = new OkHttpClientTestRule();
 
   public final List<ConnectionSpec> connectionSpecs = immutableListOf(
@@ -178,6 +181,30 @@ public final class RouteSelectorTest {
     assertThat(selection.hasNext()).isFalse();
     assertThat(routeSelector.hasNext()).isFalse();
     dns.assertRequests(uriHost);
+    proxySelector.assertRequests(); // No proxy selector requests!
+  }
+
+  /**
+   * Don't call through to the proxy selector if we don't have a host name.
+   * https://github.com/square/okhttp/issues/5770
+   */
+  @Test public void proxySelectorNotCalledForNullHost() throws Exception {
+    // The string '>' is okay in a hostname in HttpUrl, which does very light hostname validation.
+    // It is not okay in URI, and so it's stripped and we get a URI with a null host.
+    String bogusHostname = ">";
+    Address address = new Address(bogusHostname, uriPort, dns, socketFactory, null, null, null,
+        authenticator, null, protocols, connectionSpecs, proxySelector);
+    RouteSelector routeSelector = new RouteSelector(address, routeDatabase, call,
+        EventListener.NONE);
+
+    assertThat(routeSelector.hasNext()).isTrue();
+    dns.set(bogusHostname, dns.allocate(1));
+    RouteSelector.Selection selection = routeSelector.next();
+    assertRoute(selection.next(), address, NO_PROXY, dns.lookup(bogusHostname, 0), uriPort);
+
+    assertThat(selection.hasNext()).isFalse();
+    assertThat(routeSelector.hasNext()).isFalse();
+    dns.assertRequests(bogusHostname);
     proxySelector.assertRequests(); // No proxy selector requests!
   }
 
@@ -443,7 +470,10 @@ public final class RouteSelectorTest {
   @Test public void routeToString() throws Exception {
     Route route = new Route(httpAddress(), Proxy.NO_PROXY,
         InetSocketAddress.createUnresolved("host", 1234));
-    assertThat(route.toString()).isEqualTo("Route{host:1234}");
+    assertThat(route.toString()).isEqualTo(
+        PlatformVersion.INSTANCE.getMajorVersion() >= 14
+            ? "Route{host/<unresolved>:1234}"
+            : "Route{host:1234}");
   }
 
   private void assertRoute(Route route, Address address, Proxy proxy, InetAddress socketAddress,

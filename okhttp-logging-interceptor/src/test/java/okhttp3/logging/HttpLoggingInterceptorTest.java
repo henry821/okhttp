@@ -753,6 +753,8 @@ public final class HttpLoggingInterceptorTest {
   }
 
   @Test public void http2() throws Exception {
+    platform.assumeNotBouncyCastle();
+
     server.useHttps(handshakeCertificates.sslSocketFactory(), false);
     url = server.url("/");
 
@@ -832,6 +834,7 @@ public final class HttpLoggingInterceptorTest {
 
   @Test public void duplexRequestsAreNotLogged() throws Exception {
     platform.assumeHttp2Support();
+    platform.assumeNotBouncyCastle();
 
     server.useHttps(handshakeCertificates.sslSocketFactory(), false); // HTTP/2
     url = server.url("/");
@@ -873,6 +876,51 @@ public final class HttpLoggingInterceptorTest {
         .assertLogEqual("Hello response!")
         .assertLogEqual("<-- END HTTP (15-byte body)")
         .assertNoMoreLogs();
+  }
+
+  @Test public void oneShotRequestsAreNotLogged() throws Exception {
+    url = server.url("/");
+
+    setLevel(Level.BODY);
+
+    server.enqueue(new MockResponse()
+                           .setBody("Hello response!"));
+
+    RequestBody asyncRequestBody = new RequestBody() {
+      @Override public @Nullable MediaType contentType() {
+        return null;
+      }
+
+      int counter = 0;
+      @Override public void writeTo(BufferedSink sink) throws IOException {
+        counter++;
+        assertThat(counter).isLessThanOrEqualTo(1);
+
+        sink.writeUtf8("Hello request!");
+        sink.close();
+      }
+
+      @Override public boolean isOneShot() {
+        return true;
+      }
+    };
+
+    Request request = request()
+                              .post(asyncRequestBody)
+                              .build();
+    Response response = client.newCall(request).execute();
+
+    assertThat(response.body().string()).isEqualTo("Hello response!");
+
+    applicationLogs
+            .assertLogEqual("--> POST " + url)
+            .assertLogEqual("--> END POST (one-shot body omitted)")
+            .assertLogMatch("<-- 200 OK " + url + " \\(\\d+ms\\)")
+            .assertLogEqual("Content-Length: 15")
+            .assertLogEqual("")
+            .assertLogEqual("Hello response!")
+            .assertLogEqual("<-- END HTTP (15-byte body)")
+            .assertNoMoreLogs();
   }
 
   private Request.Builder request() {
